@@ -1,0 +1,42 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build disquoter",
+			"type": "shell",
+			"group": "build",
+			"command": "bazel",
+			"args": ["build", "disquoter"],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": "$tsc"
+		},
+		{
+			"label": "Watch disquoter",
+			"type": "shell",
+			"command": "ibazel",
+			"args": ["run", "disquoter"],
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"NODE_CONFIG_DIR": "${workspaceFolder}/config"
+				}
+			},
+			"problemMatcher": "$tsc"
+		},
+		{
+			"label": "Run disquoter",
+			"type": "shell",
+			"command": "bazel",
+			"args": ["run", "disquoter"],
+			"options": {
+				"cwd": "${workspaceFolder}",
+				"env": {
+					"NODE_CONFIG_DIR": "${workspaceFolder}/config"
+				}
+			},
+			"problemMatcher": "$tsc"
+		}
+	]
+}

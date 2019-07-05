@@ -1,0 +1,6 @@
+/.vscode/*
+!/.vscode/tasks.json
+/node_modules
+/config/local.yml
+/bazel-*
+/yarn-error.log

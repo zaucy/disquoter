@@ -1,0 +1,48 @@
+load("@npm_bazel_typescript//:index.bzl", "ts_library")
+load("@build_bazel_rules_nodejs//:defs.bzl", "nodejs_binary")
+load("@io_bazel_rules_docker//nodejs:image.bzl", "nodejs_image")
+load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
+
+ts_library(
+    name = "disquoter_lib",
+    srcs = glob(["*.ts"]),
+    deps = [
+      "@npm//@types/node",
+      "@npm//js-yaml",
+      "@npm//@types/config",
+      "@npm//config",
+      "@npm//@types/fs-extra",
+      "@npm//fs-extra",
+      "@npm//fuse.js",
+      "@npm//discord.js",
+      "@npm//download",
+      "@npm//file-type",
+      "@npm//chokidar",
+      "@npm//@discordjs/uws",
+      "@npm//bufferutil",
+      "@npm//ffmpeg-binaries",
+      "@npm//opusscript",
+    ],
+)
+
+nodejs_binary(
+    name = "disquoter",
+    visibility = ["//visibility:public"],
+    entry_point = ":disquoter.ts",
+    data = [
+        ":disquoter_lib",
+        "//:config",
+        "@com_github_zaucy_dca//cmd/dca",
+    ],
+)
+
+nodejs_image(
+    name = "image",
+    entry_point = ":disquoter.ts",
+    node_modules = "@npm//:node_modules",
+    data = [
+        ":disquoter_lib",
+        "//:config",
+        "@com_github_zaucy_dca//cmd/dca",
+    ],
+)

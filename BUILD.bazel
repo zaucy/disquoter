@@ -1,0 +1,10 @@
+exports_files(["tsconfig.json"], visibility = ["//:__subpackages__"])
+
+filegroup(
+  name = "config",
+  visibility = ["//:__subpackages__"],
+  srcs = [
+    "config/custom-environment-variables.yml",
+    "config/default.yml",
+  ]
+)
