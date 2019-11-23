@@ -1,3 +1,6 @@
 discord_client_token: DISCORD_CLIENT_TOKEN
 discord_client_id: DISQUOTER_BOT_CLIENT_ID
 audio_files_path: DISQUOTER_AUDIO_FILES_PATH
+dca_cmd_path: DISQUOTER_DCA_CMD_PATH
+dca_cmd_args: DISQUOTER_DCA_CMD_ARGS
+channel_vars_path: DISQUOTER_CHANNEL_VARS_PATH

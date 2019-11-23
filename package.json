@@ -6,7 +6,7 @@
         "postinstall": "patch-package"
     },
     "devDependencies": {
-        "@bazel/typescript": "0.32.2",
+        "@bazel/typescript": "~0.41.0",
         "@types/config": "^0.0.34",
         "@types/fs-extra": "^8.0.0",
         "patch-package": "^6.1.2",
@@ -26,6 +26,7 @@
         "js-yaml": "^3.13.1",
         "libsodium-wrappers": "^0.7.3",
         "mime": "^2.4.4",
-        "opusscript": "^0.0.6"
+        "opusscript": "^0.0.6",
+        "sudo-prompt": "^9.0.0"
     }
 }

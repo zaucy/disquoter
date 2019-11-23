@@ -16,7 +16,7 @@
 			"label": "Watch disquoter",
 			"type": "shell",
 			"command": "ibazel",
-			"args": ["run", "disquoter"],
+			"args": ["run", "disquoter", "--", "--no-admin"],
 			"options": {
 				"cwd": "${workspaceFolder}",
 				"env": {
@@ -29,7 +29,7 @@
 			"label": "Run disquoter",
 			"type": "shell",
 			"command": "bazel",
-			"args": ["run", "disquoter"],
+			"args": ["run", "disquoter", "--", "--no-admin"],
 			"options": {
 				"cwd": "${workspaceFolder}",
 				"env": {

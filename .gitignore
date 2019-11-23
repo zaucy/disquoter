@@ -4,3 +4,7 @@
 /config/local.yml
 /bazel-*
 /yarn-error.log
+/dist/*
+!/dist/.gitkeep
+/stdout.log
+/disquoter-channel-vars.json

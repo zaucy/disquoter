@@ -6,11 +6,14 @@ import * as fs from 'fs-extra';
 import * as chokidar from 'chokidar';
 import config from 'config';
 import fileType from 'file-type';
+import * as child_process from 'child_process';
 
 const AUDIO_FILES_DIR = config.get<string>('audio_files_path');
-
 const DISCORD_CLIENT_TOKEN = config.get<string>('discord_client_token');
 const DISCORD_CLIENT_ID = config.get<string>('discord_client_id');
+const DCA_CMD_PATH = config.get<string>('dca_cmd_path');
+const DCA_CMD_ARGS = config.get<string[]>('dca_cmd_args');
+const CHANNEL_VARS_PATH = config.get<string>('channel_vars_path');
 
 interface IOuijaCharInfo {
   char: string;
@@ -19,6 +22,10 @@ interface IOuijaCharInfo {
 
 interface IChannelVars {
   ouijaChars: IOuijaCharInfo[];
+}
+
+interface IChannelVarsMap {
+  [key: string]: IChannelVars;
 }
 
 interface IAudioFileInfo {
@@ -34,7 +41,8 @@ const defaultChannelVars: IChannelVars = {
   ouijaChars: [],
 };
 
-const audioFuse = new Fuse<IAudioFileInfo>([], {
+let audioFiles: string[] = [];
+const audioFuse = new Fuse<IAudioFileInfo, Fuse.FuseOptions<any>>([], {
   caseSensitive: false,
   keys: [
     'filename',
@@ -43,10 +51,22 @@ const audioFuse = new Fuse<IAudioFileInfo>([], {
 
 const playQueue: IPlayQueueItem[] = [];
 
-let _channelVars = new Map<string, IChannelVars>();
+async function _readChannelVarsMap(): Promise<IChannelVarsMap> {
+  if(!await fs.pathExists(CHANNEL_VARS_PATH)) {
+    return {};
+  }
 
-function loadChannelVar(channelName: string): IChannelVars {
-  let vars = _channelVars.get(channelName);
+  try {
+    return await fs.readJson(CHANNEL_VARS_PATH);
+  } catch(err) {
+    console.warn('Error while reading channel vars json:', err.message);
+    return {};
+  }
+}
+
+async function loadChannelVar(channelName: string): Promise<IChannelVars> {
+  const channelVarsMap = await _readChannelVarsMap();
+  let vars = channelVarsMap[channelName];
 
   if(!vars) {
     vars = defaultChannelVars;
@@ -55,8 +75,10 @@ function loadChannelVar(channelName: string): IChannelVars {
   return vars;
 }
 
-function storeChannelVar(channelName, vars: IChannelVars) {
-  _channelVars.set(channelName, vars);
+async function storeChannelVar(channelName, vars: IChannelVars) {
+  const channelVarsMap = await _readChannelVarsMap();
+  channelVarsMap[channelName] = vars;
+  await fs.writeJson(CHANNEL_VARS_PATH, channelVarsMap);
 }
 
 async function ensureVoiceConnection
@@ -83,12 +105,22 @@ async function doPlayAudioInVoiceChannel() {
   }
 
   const audioFilename = queueItem.audioFilename;
+  const dcaFilename = path.basename(audioFilename, path.extname(audioFilename)) + ".dca";
   const voiceChannel = queueItem.voiceChannel;
 
   const audioFilePath = path.resolve(AUDIO_FILES_DIR, audioFilename);
-  
+  const dcaFilePath = path.resolve(AUDIO_FILES_DIR, dcaFilename);
+
   const voiceConnection = await ensureVoiceConnection(voiceChannel);
-  const dispatcher = voiceConnection.playFile(audioFilePath);
+
+  let dispatcher: Discord.StreamDispatcher;
+
+  if(DCA_CMD_PATH && await fs.pathExists(dcaFilePath)) {
+    const readStream = fs.createReadStream(dcaFilePath)
+    dispatcher = voiceConnection.playOpusStream(readStream);
+  } else {
+    dispatcher = voiceConnection.playFile(audioFilePath);
+  }
 
   await new Promise((resolve, reject) => {
     dispatcher.once('error', reject);
@@ -106,6 +138,32 @@ async function doPlayAudioInVoiceChannel() {
   } else {
     await doPlayAudioInVoiceChannel();
   }
+}
+
+async function writeDcaFile(filepath: string, audioFilePath: string) {
+
+  if(!await fs.pathExists(DCA_CMD_PATH)) {
+    console.warn('[warn] dca cmd path file does not exist. dca files will not be created');
+    return;
+  }
+
+  const writeStream = await fs.open(filepath, 'w');
+  const readStream = await fs.open(audioFilePath, 'r');
+
+  const child = child_process.spawn(DCA_CMD_PATH, DCA_CMD_ARGS, {
+    stdio: [
+      readStream,
+      writeStream,
+    ],
+  });
+
+  await new Promise((resolve, reject) => {
+    child.on('close', () => Promise.all([
+        fs.close(writeStream),
+        fs.close(readStream),
+      ]).then(resolve, reject)
+    );
+  });
 }
 
 function playAudioInVoiceChannel
@@ -131,16 +189,18 @@ async function doAudioSearchAndPlay
   const results = audioFuse.search(searchString);
 
   if(results.length > 0) {
+    const result = results[0];
+
     for(const guild of msg.client.guilds.values()) {
       const member = guild.member(msg.author);
 
       if(member && member.voiceChannel) {
         await playAudioInVoiceChannel(
-          results[0].filename,
+          result['filename'],
           member.voiceChannel,
         );
       } else {
-        await msg.reply(`Would have played '${results[0].filename}', but you are not in a voice channel!`);
+        await msg.reply(`I would have played '${result['filename']}', but you are not in a voice channel!`);
       }
     }
 
@@ -157,42 +217,60 @@ async function messageHandler(msg: Discord.Message) {
   }
 
   const trimmedContent = msg.content.trim();
-  let vars = loadChannelVar(msg.channel.id);
+  let vars = await loadChannelVar(msg.channel.id);
 
   if(msg.channel.type == 'dm') {
 
-    if(trimmedContent) {
-      // Fire and forget!
-      (() => {doAudioSearchAndPlay(msg, trimmedContent)})();
-    }
-
-    for await(const attachment of msg.attachments.values()) {
-      const filename = attachment.filename.toLowerCase();
-
-      const localPath = path.resolve(AUDIO_FILES_DIR, filename);
-      const pathExists = await fs.pathExists(localPath);
-      if(pathExists) {
-        await msg.reply(`Attachment with name '${filename}' already exists. If you would like to upload this file please rename it.`);
-        return;
+    const processAttachments = async () => {
+      for await(const attachment of msg.attachments.values()) {
+        const filename = attachment.filename.toLowerCase();
+  
+        const localPath = path.resolve(AUDIO_FILES_DIR, filename);
+        const localDcaPath = path.resolve(
+          AUDIO_FILES_DIR,
+          path.basename(filename, path.extname(filename)) + '.dca',
+        );
+  
+        const pathExists = await fs.pathExists(localPath);
+        if(pathExists) {
+          await msg.reply(`Attachment with name '${filename}' already exists. If you would like to upload this file please rename it.`);
+          return;
+        }
+  
+        const attachmentData = await download(attachment.url);
+        const attachmentFileType = fileType(attachmentData);
+  
+        if(!attachmentFileType || !attachmentFileType.mime) {
+          await msg.reply(`Unable to find mime type for attachment: ${filename}`);
+        } else if(attachmentFileType.mime.startsWith('audio/')) {
+          await fs.writeFile(localPath, attachmentData);
+          if(DCA_CMD_PATH) {
+            await writeDcaFile(localDcaPath, localPath);
+          }
+          await msg.reply(`'${filename}' is now available for your disquoter enjoyment!`);
+        } else {
+          await msg.reply(`${filename} is not an audio file`);
+        }
       }
+    };
 
-      const attachmentData = await download(attachment.url);
-      const attachmentFileType = fileType(attachmentData);
-
-      if(!attachmentFileType || !attachmentFileType.mime) {
-        await msg.reply(`Unable to find mime type for attachment: ${filename}`);
-      } else if(attachmentFileType.mime.startsWith('audio/')) {
-        await fs.writeFile(localPath, attachmentData);
-        await msg.reply(`'${filename}' is now available for your disquoter enjoyment!`);
-      } else {
-        await msg.reply(`${filename} is not an audio file`);
+    const processMessage = async () => {
+      if(trimmedContent) switch(trimmedContent) {
+        case '!version':
+          return msg.reply('0.1.0');
+        case '!list':
+          const formattedFilenames = audioFiles.map(f => ' - `' + f + '`').join('\n')
+          return msg.reply(`**Available audio files**:\n${formattedFilenames}`);
+        default:
+          return doAudioSearchAndPlay(msg, trimmedContent)
+            .catch(console.error);
       }
-    }
+    };
 
-    if(trimmedContent === 'version') {
-      await msg.reply('0.1.0');
-      return;
-    }
+    await Promise.all([
+      processAttachments(),
+      processMessage(),
+    ]);
 
     // We didn't change any channel vars
     return;
@@ -228,10 +306,10 @@ async function messageHandler(msg: Discord.Message) {
     }
   }
 
-  storeChannelVar(msg.channel.id, vars);
+  await storeChannelVar(msg.channel.id, vars);
 }
 
-async function main() {
+export async function runDisquoter() {
   const client = new Discord.Client();
   client.on('message', msg => {
     messageHandler(msg).catch(err => {
@@ -251,8 +329,8 @@ async function main() {
 
       timeout = setTimeout(async () => {
         console.log('Refreshing audio files list...');
-        const files = await fs.readdir(AUDIO_FILES_DIR);
-        audioFuse.setCollection(files.map(filename => {
+        audioFiles = await fs.readdir(AUDIO_FILES_DIR);
+        audioFuse.setCollection(audioFiles.map(filename => {
           return {filename};
         }));
       }, 1000);
@@ -262,8 +340,3 @@ async function main() {
   await client.login(DISCORD_CLIENT_TOKEN);
   console.log('Disquoter is running! Waiting for messages...');
 }
-
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});

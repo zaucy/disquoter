@@ -22,13 +22,14 @@ ts_library(
       "@npm//bufferutil",
       "@npm//ffmpeg-binaries",
       "@npm//opusscript",
+      "@npm//sudo-prompt",
     ],
 )
 
 nodejs_binary(
     name = "disquoter",
     visibility = ["//visibility:public"],
-    entry_point = ":disquoter.ts",
+    entry_point = ":main.ts",
     data = [
         ":disquoter_lib",
         "//:config",

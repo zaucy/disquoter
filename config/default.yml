@@ -1,3 +1,6 @@
 discord_client_token: ''
 discord_client_id: ''
 audio_files_path: 'disquoter/audio'
+dca_cmd_path: ''
+dca_cmd_args: ['-aa', 'lowdelay', '-raw']
+channel_vars_path: 'disquoter-channel-vars.json'

@@ -6,5 +6,5 @@ filegroup(
   srcs = [
     "config/custom-environment-variables.yml",
     "config/default.yml",
-  ]
+  ],
 )
